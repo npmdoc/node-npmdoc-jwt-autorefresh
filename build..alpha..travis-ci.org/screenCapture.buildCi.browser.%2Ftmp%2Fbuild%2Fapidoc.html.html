@@ -1,0 +1,177 @@
+<html><head></head><body><div class="apidocDiv">
+<style>
+/*csslint
+*/
+.apidocDiv {
+    background: #fff;
+    font-family: Arial, Helvetica, sans-serif;
+}
+.apidocDiv a[href] {
+    color: #33f;
+    font-weight: bold;
+    text-decoration: none;
+}
+.apidocDiv a[href]:hover {
+    text-decoration: underline;
+}
+.apidocCodeCommentSpan {
+    background: #bbf;
+    color: #000;
+    display: block;
+}
+.apidocCodeKeywordSpan {
+    color: #d00;
+    font-weight: bold;
+}
+.apidocCodePre {
+    background: #eef;
+    border: 1px solid;
+    color: #777;
+    padding: 5px;
+    white-space: pre-wrap;
+}
+.apidocFooterDiv {
+    margin-top: 20px;
+    text-align: center;
+}
+.apidocModuleLi {
+    margin-top: 10px;
+}
+.apidocSectionDiv {
+    border-top: 1px solid;
+    margin-top: 20px;
+}
+.apidocSignatureSpan {
+    color: #777;
+    font-weight: bold;
+}
+</style>
+<h1>api documentation for
+    <a href="http://jwt-autorefresh.js.org">jwt-autorefresh (v0.2.4)</a>
+</h1>
+<h4>Factory to schedule and execute calls to refresh token endpoints in advance of token expiration.</h4>
+<div class="apidocSectionDiv"><a href="#apidoc.tableOfContents" id="apidoc.tableOfContents"><h1>table of contents</h1></a><ol>
+
+    <li class="apidocModuleLi"><a href="#apidoc.module.jwt-autorefresh">module jwt-autorefresh</a><ol>
+
+        <li>
+
+            <a class="apidocElementLiA" href="#apidoc.element.jwt-autorefresh.default">
+            function <span class="apidocSignatureSpan">jwt-autorefresh.</span>default
+            <span class="apidocSignatureSpan">(opts)</span>
+            </a>
+
+        </li>
+
+    </ol></li>
+
+</ol></div>
+
+<div class="apidocSectionDiv">
+<h1><a href="#apidoc.module.jwt-autorefresh" id="apidoc.module.jwt-autorefresh">module jwt-autorefresh</a></h1>
+
+
+    <h2>
+        <a href="#apidoc.element.jwt-autorefresh.default" id="apidoc.element.jwt-autorefresh.default">
+        function <span class="apidocSignatureSpan">jwt-autorefresh.</span>default
+        <span class="apidocSignatureSpan">(opts)</span>
+        </a>
+    </h2>
+    <ul>
+    <li>description and source-code<pre class="apidocCodePre">function autorefresh(opts) {
+  var _validate = validate(opts),
+      refresh = _validate.refresh,
+      leadSeconds = _validate.leadSeconds,
+      log = _validate.log;
+
+  var timeoutID = null;
+
+  var calculateDelay = function calculateDelay(access_token) {
+    try {
+      if (IS_DEV) {
+        _chai.assert.ok(access_token, 'calculateDelay expects an access_token parameter');
+        _chai.assert.typeOf(access_token, 'string', 'access_token should be a string');
+      }
+
+      var _decode = (0, _jwtSimple.decode)(access_token, null, true),
+          exp = _decode.exp,
+          nbf = _decode.nbf;
+
+      if (IS_DEV) {
+        _chai.assert.ok(exp, 'autorefresh requires JWT token with "exp" standard claim');
+        if (nbf) {
+          _chai.assert.typeOf(nbf, 'number', 'nbf claim should be a future NumericDate value');
+          _chai.assert.isBelow(nbf, exp, '"nbf" claim should be less than "exp" claim if it exists');
+        }
+      }
+      var lead = typeof leadSeconds === 'function' ? leadSeconds() : leadSeconds;
+      if (IS_DEV) {
+        _chai.assert.typeOf(lead, 'number', 'leadSeconds must be or return a number');
+        _chai.assert.isAbove(lead, 0, 'lead seconds must resolve to a positive number of seconds');
+      }
+      var refreshAtMS = (exp - lead) * 1000;
+      var delay = refreshAtMS - Date.now();
+      log.info(format(CODES.DELAY, 'calculated autorefresh delay =&gt; ' + (delay / 1000).toFixed(1) + ' seconds'));
+      return delay;
+    } catch (err) {
+      if (/$Unexpected token [A-Za-z] in JSON/.test(err.message)) throw new Error(format(CODES.INVALID_JWT, 'JWT token was not a
+ valid format =&gt; ' + access_token));
+      throw new Error(format(CODES.DELAY_ERROR, 'error occurred calculating autorefresh delay =&gt; ' + err.message));
+    }
+  };
+
+  var _schedule = function _schedule(access_token) {
+    if (IS_DEV) _chai.assert.typeOf(access_token, 'string', '_schedule expects a string access_token parameter');
+    var delay = calculateDelay(access_token);
+    if (IS_DEV) _chai.assert.isAbove(delay, 0, 'next auto refresh should always be in the future');
+    return schedule(delay);
+  };
+
+  var execute = function execute() {
+    clearTimeout(timeoutID);
+    log.info(format(CODES.EXECUTE, 'executing refresh'));
+    var result = refresh();
+    if (typeof result === 'string') return _schedule(result);
+    _chai.assert.ok(result.then, 'refresh must return the access_token or a string that resolves to the access_token');
+    return result.then(function (access_token) {
+      return _schedule(access_token);
+    }).catch(function (err) {
+      log.error(err, format(CODES.INVALID_REFRESH, 'refresh rejected with an error =&gt; ' + err.message));
+      throw err;
+    });
+  };
+
+  var schedule = function schedule(delay) {
+    clearTimeout(timeoutID);
+    log.info(format(CODES.SCHEDULE, 'scheduled refresh in ' + (delay / 1000).toFixed(1) + ' seconds'));
+    timeoutID = setTimeout(function () {
+      return execute();
+    }, delay);
+  };
+
+  var start = function start(access_token) {
+    log.info(format(CODES.START, 'autorefresh started'));
+    var delay = calculateDelay(access_token);
+    if (IS_DEV) _chai.assert.typeOf(delay, 'number', 'calculateDelay must return a number in milliseconds');
+    if (delay &gt; 0) schedule(delay);else execute();
+    var stop = function stop() {
+      clearTimeout(timeoutID);
+      log.info(format(CODES.CANCEL, 'autorefresh cancelled'));
+    };
+    return stop;
+  };
+  return start;
+}</pre></li>
+    <li>example usage<pre class="apidocCodePre">n/a</pre></li>
+    </ul>
+
+
+</div>
+
+<div class="apidocFooterDiv">
+    [ this document was created with
+    <a href="https://github.com/kaizhu256/node-utility2" target="_blank">utility2</a>
+    ]
+</div>
+</div>
+</body></html>

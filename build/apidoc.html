@@ -1,0 +1,183 @@
+<div class="apidocDiv">
+<style>
+/*csslint
+*/
+.apidocDiv {
+    background: #fff;
+    font-family: Arial, Helvetica, sans-serif;
+}
+.apidocDiv a[href] {
+    color: #33f;
+    font-weight: bold;
+    text-decoration: none;
+}
+.apidocDiv a[href]:hover {
+    text-decoration: underline;
+}
+.apidocCodeCommentSpan {
+    background: #bbf;
+    color: #000;
+    display: block;
+}
+.apidocCodeKeywordSpan {
+    color: #d00;
+    font-weight: bold;
+}
+.apidocCodePre {
+    background: #eef;
+    border: 1px solid;
+    color: #777;
+    padding: 5px;
+    white-space: pre-wrap;
+}
+.apidocFooterDiv {
+    margin-top: 20px;
+    text-align: center;
+}
+.apidocModuleLi {
+    margin-top: 10px;
+}
+.apidocSectionDiv {
+    border-top: 1px solid;
+    margin-top: 20px;
+}
+.apidocSignatureSpan {
+    color: #777;
+    font-weight: bold;
+}
+</style>
+<h1>api documentation for
+    <a
+
+        href="http://jwt-autorefresh.js.org"
+
+    >jwt-autorefresh (v0.2.4)</a>
+</h1>
+<h4>Factory to schedule and execute calls to refresh token endpoints in advance of token expiration.</h4>
+<div class="apidocSectionDiv"><a
+    href="#apidoc.tableOfContents"
+    id="apidoc.tableOfContents"
+><h1>table of contents</h1></a><ol>
+
+    <li class="apidocModuleLi"><a href="#apidoc.module.jwt-autorefresh">module jwt-autorefresh</a><ol>
+
+        <li>
+
+            <a class="apidocElementLiA" href="#apidoc.element.jwt-autorefresh.default">
+            function <span class="apidocSignatureSpan">jwt-autorefresh.</span>default
+            <span class="apidocSignatureSpan">(opts)</span>
+            </a>
+
+        </li>
+
+    </ol></li>
+
+</ol></div>
+
+<div class="apidocSectionDiv">
+<h1><a href="#apidoc.module.jwt-autorefresh" id="apidoc.module.jwt-autorefresh">module jwt-autorefresh</a></h1>
+
+
+    <h2>
+        <a href="#apidoc.element.jwt-autorefresh.default" id="apidoc.element.jwt-autorefresh.default">
+        function <span class="apidocSignatureSpan">jwt-autorefresh.</span>default
+        <span class="apidocSignatureSpan">(opts)</span>
+        </a>
+    </h2>
+    <ul>
+    <li>description and source-code<pre class="apidocCodePre">function autorefresh(opts) {
+  var _validate = validate(opts),
+      refresh = _validate.refresh,
+      leadSeconds = _validate.leadSeconds,
+      log = _validate.log;
+
+  var timeoutID = null;
+
+  var calculateDelay = function calculateDelay(access_token) {
+    try {
+      if (IS_DEV) {
+        _chai.assert.ok(access_token, &#x27;calculateDelay expects an access_token parameter&#x27;);
+        _chai.assert.typeOf(access_token, &#x27;string&#x27;, &#x27;access_token should be a string&#x27;);
+      }
+
+      var _decode = (0, _jwtSimple.decode)(access_token, null, true),
+          exp = _decode.exp,
+          nbf = _decode.nbf;
+
+      if (IS_DEV) {
+        _chai.assert.ok(exp, &#x27;autorefresh requires JWT token with &#x22;exp&#x22; standard claim&#x27;);
+        if (nbf) {
+          _chai.assert.typeOf(nbf, &#x27;number&#x27;, &#x27;nbf claim should be a future NumericDate value&#x27;);
+          _chai.assert.isBelow(nbf, exp, &#x27;&#x22;nbf&#x22; claim should be less than &#x22;exp&#x22; claim if it exists&#x27;);
+        }
+      }
+      var lead = typeof leadSeconds === &#x27;function&#x27; ? leadSeconds() : leadSeconds;
+      if (IS_DEV) {
+        _chai.assert.typeOf(lead, &#x27;number&#x27;, &#x27;leadSeconds must be or return a number&#x27;);
+        _chai.assert.isAbove(lead, 0, &#x27;lead seconds must resolve to a positive number of seconds&#x27;);
+      }
+      var refreshAtMS = (exp - lead) * 1000;
+      var delay = refreshAtMS - Date.now();
+      log.info(format(CODES.DELAY, &#x27;calculated autorefresh delay =&#x3e; &#x27; + (delay / 1000).toFixed(1) + &#x27; seconds&#x27;));
+      return delay;
+    } catch (err) {
+      if (/$Unexpected token [A-Za-z] in JSON/.test(err.message)) throw new Error(format(CODES.INVALID_JWT, &#x27;JWT token was not a
+ valid format =&#x3e; &#x27; + access_token));
+      throw new Error(format(CODES.DELAY_ERROR, &#x27;error occurred calculating autorefresh delay =&#x3e; &#x27; + err.message));
+    }
+  };
+
+  var _schedule = function _schedule(access_token) {
+    if (IS_DEV) _chai.assert.typeOf(access_token, &#x27;string&#x27;, &#x27;_schedule expects a string access_token parameter&#x27;);
+    var delay = calculateDelay(access_token);
+    if (IS_DEV) _chai.assert.isAbove(delay, 0, &#x27;next auto refresh should always be in the future&#x27;);
+    return schedule(delay);
+  };
+
+  var execute = function execute() {
+    clearTimeout(timeoutID);
+    log.info(format(CODES.EXECUTE, &#x27;executing refresh&#x27;));
+    var result = refresh();
+    if (typeof result === &#x27;string&#x27;) return _schedule(result);
+    _chai.assert.ok(result.then, &#x27;refresh must return the access_token or a string that resolves to the access_token&#x27;);
+    return result.then(function (access_token) {
+      return _schedule(access_token);
+    }).catch(function (err) {
+      log.error(err, format(CODES.INVALID_REFRESH, &#x27;refresh rejected with an error =&#x3e; &#x27; + err.message));
+      throw err;
+    });
+  };
+
+  var schedule = function schedule(delay) {
+    clearTimeout(timeoutID);
+    log.info(format(CODES.SCHEDULE, &#x27;scheduled refresh in &#x27; + (delay / 1000).toFixed(1) + &#x27; seconds&#x27;));
+    timeoutID = setTimeout(function () {
+      return execute();
+    }, delay);
+  };
+
+  var start = function start(access_token) {
+    log.info(format(CODES.START, &#x27;autorefresh started&#x27;));
+    var delay = calculateDelay(access_token);
+    if (IS_DEV) _chai.assert.typeOf(delay, &#x27;number&#x27;, &#x27;calculateDelay must return a number in milliseconds&#x27;);
+    if (delay &#x3e; 0) schedule(delay);else execute();
+    var stop = function stop() {
+      clearTimeout(timeoutID);
+      log.info(format(CODES.CANCEL, &#x27;autorefresh cancelled&#x27;));
+    };
+    return stop;
+  };
+  return start;
+}</pre></li>
+    <li>example usage<pre class="apidocCodePre">n/a</pre></li>
+    </ul>
+
+
+</div>
+
+<div class="apidocFooterDiv">
+    [ this document was created with
+    <a href="https://github.com/kaizhu256/node-utility2" target="_blank">utility2</a>
+    ]
+</div>
+</div>
